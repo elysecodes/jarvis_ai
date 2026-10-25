@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Large downloaded models (Vosk, Phase 2)
+models/
+
+# Local config (may contain machine-specific paths)
+config.json
+
+# Logs
+logs/*.log
+
+# Generated code written by JARVIS
+generated_code/
+
+# Secrets / keys (should never exist here, but just in case)
+.env
+*.key

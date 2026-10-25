@@ -1,0 +1,5 @@
+requests>=2.31
+pyttsx3>=2.90
+vosk>=0.3.45
+sounddevice>=0.4.6
+pytest>=8.0
