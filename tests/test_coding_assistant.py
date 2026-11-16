@@ -26,6 +26,74 @@ def test_answer_coding_question_returns_reply(monkeypatch):
     assert result == "Use a list."
 
 
+# ---------------------------------------------------------------------------
+# load_code / review_code (reading a file for review)
+# ---------------------------------------------------------------------------
+
+def test_load_code_reads_from_generated_code(monkeypatch, tmp_path):
+    _setup_code_dir(monkeypatch, tmp_path)  # approved + GENERATED_CODE_DIR
+    (tmp_path / "hello.py").write_text("print('hi')", encoding="utf-8")
+    assert coding_assistant.load_code("hello.py") == "print('hi')"
+
+
+def test_load_code_strips_folders_so_traversal_is_impossible(monkeypatch, tmp_path):
+    _setup_code_dir(monkeypatch, tmp_path)
+    (tmp_path / "hello.py").write_text("x = 1", encoding="utf-8")
+    # "../../hello.py" loses its folders and simply looks for hello.py
+    assert coding_assistant.load_code("../../hello.py") == "x = 1"
+
+
+def test_load_code_rejects_non_python(monkeypatch, tmp_path):
+    _setup_code_dir(monkeypatch, tmp_path)
+    with pytest.raises(coding_assistant.CodingError):
+        coding_assistant.load_code("notes.txt")
+
+
+def test_load_code_reports_missing_file(monkeypatch, tmp_path):
+    _setup_code_dir(monkeypatch, tmp_path)
+    with pytest.raises(coding_assistant.CodingError) as info:
+        coding_assistant.load_code("nope.py")
+    assert "could not find" in str(info.value)
+
+
+def test_load_code_blocks_unapproved_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(coding_assistant.config, "GENERATED_CODE_DIR", tmp_path)
+    (tmp_path / "hello.py").write_text("x = 1", encoding="utf-8")
+    with pytest.raises(coding_assistant.CodingError):
+        coding_assistant.load_code("hello.py")
+
+
+def test_load_code_cuts_very_long_files(monkeypatch, tmp_path):
+    _setup_code_dir(monkeypatch, tmp_path)
+    (tmp_path / "big.py").write_text("x = 1\n" * 5000, encoding="utf-8")
+    text = coding_assistant.load_code("big.py")
+    assert len(text) < coding_assistant.MAX_CODE_CHARS + 200
+    assert "cut off" in text
+
+
+def test_review_code_sends_the_code_to_the_model(monkeypatch):
+    seen = {}
+
+    def fake_chat(messages):
+        seen["prompt"] = messages[-1]["content"]
+        return "Looks fine."
+
+    monkeypatch.setattr(coding_assistant.ai_engine, "chat", fake_chat)
+    result = coding_assistant.review_code("print('hi')", "hello.py")
+    assert result == "Looks fine."
+    assert "print('hi')" in seen["prompt"]
+    assert "hello.py" in seen["prompt"]
+
+
+def test_review_code_with_nothing_to_review(monkeypatch):
+    monkeypatch.setattr(
+        coding_assistant.ai_engine,
+        "chat",
+        lambda messages: (_ for _ in ()).throw(AssertionError("must not call the model")),
+    )
+    assert "no code" in coding_assistant.review_code("   ")
+
+
 def test_answer_coding_question_sends_system_prompt(monkeypatch):
     captured = []
     monkeypatch.setattr(

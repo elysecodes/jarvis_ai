@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050b">
+<meta name="color-scheme" content="dark">
+<title>J.A.R.V.I.S — Local AI Interface</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%2322d3ee' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%2367e8f9'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Ambient particle field + HUD frame: decoration only, never interactive. -->
+<canvas class="bg-fx" id="bgCanvas" aria-hidden="true"></canvas>
+<div class="hud-frame" aria-hidden="true">
+  <i></i><i></i><i></i><i></i>
+  <span class="hud-scan"></span>
+</div>
+<div class="app">
+
+  <!-- ================= TOP BAR ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" width="30" height="30">
+          <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/>
+          <circle cx="24" cy="24" r="13" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <circle cx="24" cy="24" r="4.5" fill="currentColor"/>
+          <path class="brand-arc" d="M24 4a20 20 0 0 1 17.32 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="brand-text">J<span class="dim">.</span>A<span class="dim">.</span>R<span class="dim">.</span>V<span class="dim">.</span>I<span class="dim">.</span>S</span>
+    </div>
+
+    <div class="online" id="onlineBadge">
+      <span class="online-dot" id="onlineDot"></span>
+      <span id="onlineText">SYSTEM ONLINE</span>
+    </div>
+
+    <div class="top-right">
+      <div class="session" title="How long this interface has been open">
+        <span class="session-key">SESSION</span>
+        <span class="session-val" id="sessionTime">00:00</span>
+      </div>
+      <div class="clock">
+        <span class="clock-time" id="clockTime">--:--:--</span>
+        <span class="clock-date" id="clockDate">&nbsp;</span>
+      </div>
+      <button class="chip" id="micBadge" type="button" title="Microphone status">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" fill="currentColor"/>
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span id="micBadgeText">MIC OFF</span>
+      </button>
+      <button class="icon-btn" id="settingsBtn" type="button" aria-label="Open settings" title="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= LEFT RAIL ================= -->
+  <nav class="rail" aria-label="Sections">
+    <button class="rail-btn is-active" data-view="dashboard" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4zm10 7h6v-9h-6zM4 20h6v-4H4zm10-11h6V4h-6z" fill="currentColor"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="rail-btn" data-view="assistant" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 9h8M8 12.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <span>AI Assistant</span>
+    </button>
+    <button class="rail-btn" data-view="voice" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Voice Control</span>
+    </button>
+    <button class="rail-btn" data-view="monitor" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15l4-6 4 4 3-7 4 9 3-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>System Monitor</span>
+    </button>
+    <button class="rail-btn" data-view="apps" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>Applications</span>
+    </button>
+    <button class="rail-btn" data-view="settings" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
+  <!-- ================= CENTRE STAGE ================= -->
+  <main class="stage">
+
+    <!-- Dashboard: the holographic core -->
+    <section class="view is-active" id="view-dashboard" aria-label="Dashboard">
+      <div class="core-wrap">
+        <canvas id="coreCanvas" aria-hidden="true"></canvas>
+        <div class="core-label">
+          <h1 class="core-name">J<span class="dim">.</span>A<span class="dim">.</span>R<span class="dim">.</span>V<span class="dim">.</span>I<span class="dim">.</span>S</h1>
+          <p class="core-status" id="coreStatus" data-state="idle">READY FOR COMMAND</p>
+          <div class="core-ticks" aria-hidden="true"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+
+      <div class="dash-strip">
+        <div class="dash-cell">
+          <span class="dash-key">CORE</span>
+          <span class="dash-val" id="dashCore">OLLAMA</span>
+        </div>
+        <div class="dash-cell">
+          <span class="dash-key">MODEL</span>
+          <span class="dash-val" id="dashModel">—</span>
+        </div>
+        <div class="dash-cell">
+          <span class="dash-key">MIC</span>
+          <span class="dash-val" id="dashMic">OFF</span>
+        </div>
+        <div class="dash-cell">
+          <span class="dash-key">EXCHANGES</span>
+          <span class="dash-val" id="dashTurns">0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Assistant: full transcript -->
+    <section class="view" id="view-assistant" aria-label="AI Assistant">
+      <header class="view-head">
+        <h2>AI Assistant</h2>
+        <p>Every exchange with the local model. Nothing leaves this PC.</p>
+      </header>
+      <div class="transcript" id="transcript" aria-live="polite"></div>
+      <div class="view-foot">
+        <button class="ghost-btn" type="button" id="clearChat">Clear transcript</button>
+        <span class="hint">Commands are answered by rules first, then by Ollama.</span>
+      </div>
+    </section>
+    <!-- Voice Control -->
+    <section class="view" id="view-voice" aria-label="Voice Control">
+      <header class="view-head">
+        <h2>Voice Control</h2>
+        <p>Speech input and spoken replies, with their limits stated plainly.</p>
+      </header>
+
+      <div class="panel-grid">
+        <article class="panel">
+          <h3>Microphone</h3>
+          <dl class="facts">
+            <div><dt>Engine</dt><dd id="voiceEngine">detecting…</dd></div>
+            <div><dt>Status</dt><dd id="voiceStatus">idle</dd></div>
+            <div><dt>Wake word</dt><dd id="voiceWake">—</dd></div>
+            <div><dt>Input level</dt><dd><span class="meter"><i id="levelBar"></i></span></dd></div>
+          </dl>
+          <div class="btn-row">
+            <button class="primary-btn" type="button" id="voiceListenBtn">Listen once</button>
+            <button class="ghost-btn" type="button" id="voiceWakeBtn">Start wake word</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h3>How this works</h3>
+          <ul class="notes">
+            <li><strong>Browser speech recognition</strong> is used where the browser offers it. Chrome and Edge may send audio to their own cloud service — that is not local.</li>
+            <li><strong>Typing is always fully local.</strong> If privacy matters, use the text box.</li>
+            <li><strong>Local mic option:</strong> <code>python main.py</code> uses offline Vosk on this PC.</li>
+            <li>Spoken replies use Windows voices through the browser and never upload anything.</li>
+          </ul>
+          <label class="switch">
+            <input type="checkbox" id="ttsToggle" checked>
+            <span>Speak JARVIS replies aloud</span>
+          </label>
+        </article>
+      </div>
+    </section>
+
+    <!-- System Monitor -->
+    <section class="view" id="view-monitor" aria-label="System Monitor">
+      <header class="view-head">
+        <h2>System Monitor</h2>
+        <p>Read live from the Windows API by the local server. Missing values are hidden, never invented.</p>
+      </header>
+      <div class="monitor-grid" id="monitorGrid"></div>
+      <div class="panel facts-panel">
+        <h3>Machine</h3>
+        <dl class="facts" id="hostFacts"></dl>
+      </div>
+    </section>
+    <!-- Applications -->
+    <section class="view" id="view-apps" aria-label="Applications">
+      <header class="view-head">
+        <h2>Applications</h2>
+        <p>Only these programs may be launched. Each launch asks for confirmation first.</p>
+      </header>
+      <div class="app-grid" id="appGrid"></div>
+      <p class="hint">The allowlist lives in <code>modules/computer_control.py</code>. Nothing else can be started, and no shell command is ever built.</p>
+    </section>
+
+    <!-- Settings -->
+    <section class="view" id="view-settings" aria-label="Settings">
+      <header class="view-head">
+        <h2>Settings</h2>
+        <p>Read-only view of the running configuration. Edit <code>config.json</code> to change it.</p>
+      </header>
+      <div class="panel-grid">
+        <article class="panel">
+          <h3>Assistant</h3>
+          <dl class="facts">
+            <div><dt>Model</dt><dd id="setModel">—</dd></div>
+            <div><dt>Ollama</dt><dd id="setOllama">—</dd></div>
+            <div><dt>Voice replies</dt><dd id="setTts">—</dd></div>
+            <div><dt>Interface</dt><dd>127.0.0.1 only</dd></div>
+          </dl>
+        </article>
+        <article class="panel">
+          <h3>File access</h3>
+          <dl class="facts" id="setFolders"></dl>
+          <p class="hint">Approved folders come from <code>approved_directories</code> in <code>config.json</code>.</p>
+        </article>
+      </div>
+      <div class="btn-row">
+        <button class="ghost-btn" type="button" id="refreshBtn">Re-check system</button>
+        <button class="ghost-btn" type="button" id="clearLocalBtn">Reset local preferences</button>
+      </div>
+    </section>
+
+  </main>
+  <!-- ================= RIGHT PANEL ================= -->
+  <aside class="side-panel" aria-label="System information">
+    <div class="panel-head">
+      <h2>System</h2>
+      <span class="live-tag"><span class="live-dot"></span>LIVE</span>
+    </div>
+
+    <div class="stat" id="statCpu">
+      <div class="stat-top"><span>CPU</span><strong id="cpuValue">—</strong></div>
+      <div class="bar"><i id="cpuBar"></i></div>
+      <canvas class="spark" id="cpuSpark" height="34"></canvas>
+    </div>
+
+    <div class="stat" id="statRam">
+      <div class="stat-top"><span>RAM</span><strong id="ramValue">—</strong></div>
+      <div class="bar"><i id="ramBar"></i></div>
+      <canvas class="spark" id="ramSpark" height="34"></canvas>
+      <span class="stat-sub" id="ramSub">—</span>
+    </div>
+
+    <div class="stat" id="statDisk">
+      <div class="stat-top"><span>STORAGE</span><strong id="diskValue">—</strong></div>
+      <div class="bar"><i id="diskBar"></i></div>
+      <span class="stat-sub" id="diskSub">—</span>
+    </div>
+
+    <div class="stat" id="statTemp" hidden>
+      <div class="stat-top"><span>CPU TEMP</span><strong id="tempValue">—</strong></div>
+      <div class="bar"><i id="tempBar"></i></div>
+    </div>
+
+    <div class="stat stat-quiet">
+      <div class="stat-top"><span>NETWORK</span><strong id="netValue">LOCAL</strong></div>
+      <span class="stat-sub" id="netSub">No internet traffic</span>
+    </div>
+
+    <div class="stat stat-quiet">
+      <div class="stat-top"><span>CORE</span><strong id="coreValue">—</strong></div>
+      <span class="stat-sub" id="coreSub">—</span>
+    </div>
+
+    <div class="panel-foot">
+      <span id="hostName">—</span>
+      <span id="hostUptime">—</span>
+    </div>
+  </aside>
+  <!-- ================= BOTTOM COMMAND BAR ================= -->
+  <footer class="composer">
+    <div class="composer-head">
+      <span class="composer-title">COMMAND</span>
+      <span class="wave-wrap"><canvas id="waveCanvas" height="26"></canvas></span>
+      <span class="composer-state" id="composerState" data-state="idle">READY</span>
+    </div>
+
+    <div class="log" id="log" aria-live="polite">
+      <div class="log-empty" id="logEmpty">Say something, or press the microphone. Try “what is the time”.</div>
+    </div>
+
+    <!-- One-tap commands that are answered by local rules, no model needed. -->
+    <div class="quick-row" aria-label="Suggested commands">
+      <button class="quick-chip" type="button" data-cmd="what is the time">Time</button>
+      <button class="quick-chip" type="button" data-cmd="what is the date">Date</button>
+      <button class="quick-chip" type="button" data-cmd="list apps">Apps</button>
+      <button class="quick-chip" type="button" data-cmd="help">Help</button>
+      <button class="quick-chip" type="button" data-cmd="open notepad">Open Notepad</button>
+    </div>
+
+    <form class="cmd-form" id="cmdForm" autocomplete="off">
+      <button class="mic-btn" id="micBtn" type="button" aria-label="Speak a command" title="Speak a command">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" fill="currentColor"/>
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <input class="cmd-input" id="cmdInput" type="text" maxlength="500"
+             placeholder="Type a command for JARVIS…" aria-label="Command">
+      <button class="send-btn" type="submit" aria-label="Send command">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M3.5 11.5 20 4l-7 16-2.4-6.1z" fill="currentColor"/>
+        </svg>
+      </button>
+    </form>
+  </footer>
+  <!-- ================= CONFIRMATION DIALOG ================= -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">Confirm action</h3>
+      <p class="modal-detail" id="confirmDetail">—</p>
+      <p class="modal-note">JARVIS waits for your answer. No answer means No.</p>
+      <div class="btn-row">
+        <button class="ghost-btn" type="button" id="confirmNo">No</button>
+        <button class="primary-btn" type="button" id="confirmYes">Yes, proceed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast for honest status messages -->
+  <div class="toast" id="toast" hidden></div>
+
+
+
+
+
+
+</div>
+<noscript>
+  <p style="position:fixed;inset:auto 0 0 0;margin:0;padding:14px 18px;font-family:Segoe UI,sans-serif;font-size:13px;color:#dff6ff;background:#071226;border-top:1px solid rgba(56,189,248,.3);z-index:99">
+    JARVIS needs JavaScript for this interface. Enable it, or use <code>python main.py --text</code> in a terminal.
+  </p>
+</noscript>
+<script>
+/* TEMPORARY LAYOUT PROBE - removed after verification */
+window.addEventListener("load", () => setTimeout(() => {
+  const r = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return "missing";
+    const b = el.getBoundingClientRect();
+    return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)];
+  };
+  const comp = document.querySelector(".composer");
+  document.title = JSON.stringify({
+    vw: innerWidth, vh: innerHeight,
+    docScroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+    app: r(".app"), stage: r(".stage"), side: r(".side-panel"),
+    composer: r(".composer"), chips: r(".quick-row"), form: r(".cmd-form"),
+    input: r(".cmd-input"), log: r(".log"), core: r(".core-wrap"), rail: r(".rail"),
+    composerOverflow: comp ? comp.scrollHeight - comp.clientHeight : "missing",
+    formBottom: Math.round(document.querySelector(".cmd-form").getBoundingClientRect().bottom),
+    composerBottom: comp ? Math.round(comp.getBoundingClientRect().bottom) : "missing",
+  });
+}, 1600));
+</script>
+<script src="app.js"></script>
+</body>
+</html>

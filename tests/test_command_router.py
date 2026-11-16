@@ -122,3 +122,163 @@ def test_unexpected_error_is_caught():
         response = command_router.route("tell me a story")
     assert response.source == "error"
     assert "went wrong" in response.text
+
+
+# --- safe actions on the PC (Phase 3) ---------------------------------------
+
+def test_list_apps_uses_the_allowlist():
+    response = command_router.route("what apps can you open?")
+    assert response.source == "rule"
+    assert "notepad" in response.text
+
+
+def test_open_app_calls_the_allowlist(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        command_router.computer_control,
+        "launch_app",
+        lambda name: called.append(name) or f"Launched {name}.",
+    )
+    response = command_router.route("open notepad")
+    assert called == ["notepad"]
+    assert response.source == "action"
+    assert "Launched notepad" in response.text
+
+
+def test_open_unknown_app_is_explained(monkeypatch):
+    def refuse(name):
+        raise command_router.computer_control.ControlError(f"no app {name}")
+
+    monkeypatch.setattr(command_router.computer_control, "launch_app", refuse)
+    response = command_router.route("open photoshop")
+    assert response.source == "rule"
+    assert "no app photoshop" in response.text
+
+
+def test_run_script_is_routed(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        command_router.computer_control,
+        "run_script",
+        lambda name: called.append(name) or "done",
+    )
+    response = command_router.route("run script hello.py")
+    assert called == ["hello.py"]
+    assert response.text == "done"
+
+
+def test_open_file_is_routed_with_quotes_stripped(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        command_router.computer_control,
+        "open_file",
+        lambda name: called.append(name) or "opened",
+    )
+    command_router.route('open the file "notes.txt"')
+    assert called == ["notes.txt"]
+
+
+# --- coding assistant (Phase 4) ---------------------------------------------
+
+def test_coding_questions_use_the_coding_assistant(monkeypatch):
+    seen = {}
+
+    def fake_answer(question, history=None):
+        seen["question"] = question
+        return "Use a list."
+
+    monkeypatch.setattr(
+        command_router.coding_assistant, "answer_coding_question", fake_answer
+    )
+    response = command_router.route("how do I sort a python list?")
+    assert response.source == "coding"
+    assert response.text == "Use a list."
+    assert "sort a python list" in seen["question"]
+
+
+def test_coding_answers_are_remembered(monkeypatch):
+    monkeypatch.setattr(
+        command_router.coding_assistant,
+        "answer_coding_question",
+        lambda question, history=None: "Answer.",
+    )
+    response = command_router.route("what is a python function?")
+    assert len(response.history) == 2
+    assert response.history[0]["role"] == "user"
+
+
+# --- coding assistant commands: save / list / review -------------------------
+
+def test_list_code_says_nothing_saved_yet(monkeypatch):
+    monkeypatch.setattr(command_router.coding_assistant, "list_generated_code", lambda: [])
+    response = command_router.route("show my code")
+    assert response.source == "rule"
+    assert "not saved any code" in response.text
+
+
+def test_list_code_shows_saved_names(monkeypatch):
+    monkeypatch.setattr(
+        command_router.coding_assistant, "list_generated_code", lambda: ["a.py", "b.py"]
+    )
+    response = command_router.route("list my saved snippets")
+    assert "a.py, b.py" in response.text
+
+
+def test_save_that_as_uses_the_previous_answer(monkeypatch):
+    saved = {}
+
+    def fake_save(filename, code, confirm=True):
+        saved["filename"] = filename
+        saved["code"] = code
+        return f"Saved {filename}."
+
+    monkeypatch.setattr(command_router.coding_assistant, "save_code_snippet", fake_save)
+    history = [
+        {"role": "user", "content": "write a hello world script"},
+        {"role": "assistant", "content": "print('hello')"},
+    ]
+    response = command_router.route("save that as hello.py", history)
+    assert saved["filename"] == "hello.py"
+    assert saved["code"] == "print('hello')"
+    assert response.text == "Saved hello.py."
+
+
+def test_save_that_as_without_history_explains(monkeypatch):
+    monkeypatch.setattr(
+        command_router.coding_assistant,
+        "save_code_snippet",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not save")),
+    )
+    response = command_router.route("save that as hello.py", [])
+    assert response.source == "rule"
+    assert "no code to save" in response.text
+
+
+def test_review_file_reads_and_asks_the_model(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        command_router.coding_assistant, "load_code", lambda name: "print('hi')"
+    )
+
+    def fake_review(code, filename=""):
+        seen["code"] = code
+        seen["filename"] = filename
+        return "That prints hi."
+
+    monkeypatch.setattr(command_router.coding_assistant, "review_code", fake_review)
+    response = command_router.route("review the file hello.py")
+    assert response.source == "coding"
+    assert response.text == "That prints hi."
+    assert seen == {"code": "print('hi')", "filename": "hello.py"}
+
+
+def test_review_missing_file_is_explained(monkeypatch):
+    def fail(name):
+        raise command_router.coding_assistant.CodingError("I could not find it.")
+
+    monkeypatch.setattr(command_router.coding_assistant, "load_code", fail)
+    response = command_router.route("explain hello.py")
+    assert response.source == "rule"
+    assert "could not find" in response.text
+
+

@@ -87,10 +87,6 @@ def run_script(script_name: str, args: list[str] | None = None, confirm: bool = 
     """
     args = args or []
 
-    if confirm and security.requires_confirmation("run_script"):
-        if not security.confirm_action("run script", script_name):
-            return f"Cancelled: not running {script_name}."
-
     if Path(script_name).suffix.lower() != ".py":
         return f"Only Python scripts (.py) are allowed, not {script_name}."
 
@@ -100,6 +96,10 @@ def run_script(script_name: str, args: list[str] | None = None, confirm: bool = 
         )
     except security.SecurityError as exc:
         return str(exc)
+
+    if confirm and security.requires_confirmation("run_script"):
+        if not security.confirm_action("run script", script_name):
+            return f"Cancelled: not running {script_name}."
 
     cmd = ["python", str(script_path)] + [str(a) for a in args]
     try:

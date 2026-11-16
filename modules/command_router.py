@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import config
-from modules import ai_engine
+from modules import ai_engine, coding_assistant, computer_control
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,38 @@ _THANKS_RE = re.compile(r"\b(thanks|thank you|cheers)\b")
 
 # Safety: refuse absurdly long inputs before they reach the AI model.
 _MAX_INPUT_CHARS = 500
+
+
+# --- actions on the PC (Phase 3) --------------------------------------------
+# JARVIS can only request a NAMED action from the allowlist in
+# computer_control.py. It never builds or runs a shell command.
+_LIST_APPS_RE = re.compile(r"\b(?:list|which|what)\b.*\bapps?\b")
+_RUN_SCRIPT_RE = re.compile(r"^(?:run|execute)\s+(?:the\s+)?(?:script|program)\s+(.+)$")
+_OPEN_FILE_RE = re.compile(r"^(?:open|show|view)\s+(?:the\s+)?(?:file|document)\s+(.+)$")
+_OPEN_APP_RE = re.compile(
+    r"^(?:open|launch|start|run)\s+(?:the\s+|up\s+)?(.+?)(?:\s+(?:app|application))?$"
+)
+
+# Words that mean the question is about programming, so the coding assistant
+# (Phase 4) answers it with a code-friendly prompt instead of the chat prompt.
+_CODING_RE = re.compile(
+    r"\b(code|coding|python|programming|function|debug|debugging|traceback|bug|syntax)\b"
+)
+
+# --- coding assistant commands (Phase 4) ------------------------------------
+# "save that as hello.py" saves the previous answer, so a snippet can be kept
+# without copy/paste. Everything still goes through security + confirmation.
+_SAVE_CODE_RE = re.compile(
+    r"^(?:save|write|keep)\s+(?:this|that|it)"
+    r"(?:\s+(?:code|script|snippet|answer|program))?"
+    r"\s+(?:as|to|in)\s+(\S+\.py)$"
+)
+_LIST_CODE_RE = re.compile(
+    r"^(?:list|show)\s+(?:me\s+)?(?:my\s+)?(?:saved\s+)?(?:code|snippets?|files?)$"
+)
+_REVIEW_CODE_RE = re.compile(
+    r"^(?:review|check|explain|look at)\s+(?:the\s+)?(?:file\s+|code\s+)?(?:in\s+)?([\w\-.]+\.py)$"
+)
 
 
 def _normalise(text: str) -> str:
@@ -139,17 +171,129 @@ def route(text: str, history: list[dict] | None = None) -> Response:
 
     if _HELP_RE.search(cleaned):
         return Response(
-            "You can ask me the time or the date, say hello, or ask me anything else "
-            "and I will think about it with your local AI model. Say 'exit' or "
-            "'goodbye JARVIS' to stop me.",
+            "You can ask me the time or the date, say hello, ask a programming "
+            "question, open an app such as notepad, or say 'save that as hello.py' "
+            "to keep the last answer. For anything else I will think about it with "
+            "your local AI model. Say 'exit' or 'goodbye JARVIS' to stop me.",
             source="rule",
         )
 
     if _THANKS_RE.search(cleaned):
         return Response("You are welcome.", source="rule")
 
-    # 5. Everything else: ask the local AI model ---------------------------
+    # 5. Coding assistant commands (save / list / review) ------------------
+    coding_action = _handle_coding_action(cleaned, history or [])
+    if coding_action is not None:
+        return coding_action
+
+    # 6. Safe things on the PC (apps, files, scripts) ----------------------
+    action = _handle_action(cleaned)
+    if action is not None:
+        return action
+
+    # 7. Programming questions go to the coding assistant (Phase 4) --------
+    if _CODING_RE.search(cleaned):
+        return _ask_coder(cleaned, history or [])
+
+    # 8. Everything else: ask the local AI model ---------------------------
     return _ask_model(cleaned, history or [])
+
+
+def _clean_target(raw: str) -> str:
+    """Tidy a name from speech: strip quotes, spaces and trailing punctuation."""
+    return raw.strip().strip("\"'").rstrip(".!? ").strip()
+
+
+def _handle_action(cleaned: str) -> Response | None:
+    """Try the safe named actions (look first). Returns None if not an action."""
+    if _LIST_APPS_RE.search(cleaned):
+        apps = ", ".join(computer_control.list_allowed_apps())
+        return Response(
+            f"I can open: {apps}. For example, say 'open notepad'.", source="rule"
+        )
+
+    match = _RUN_SCRIPT_RE.match(cleaned)
+    if match:
+        script = _clean_target(match.group(1))
+        return Response(computer_control.run_script(script), source="action")
+
+    match = _OPEN_FILE_RE.match(cleaned)
+    if match:
+        target = _clean_target(match.group(1))
+        return Response(computer_control.open_file(target), source="action")
+
+    match = _OPEN_APP_RE.match(cleaned)
+    if match:
+        app = _clean_target(match.group(1))
+        try:
+            return Response(computer_control.launch_app(app), source="action")
+        except computer_control.ControlError as exc:
+            return Response(str(exc), source="rule")
+
+    return None
+
+
+def _last_code_answer(history: list[dict]) -> str:
+    """The most recent answer from the model (what 'save that as x.py' saves)."""
+    for turn in reversed(history):
+        if turn.get("role") == "assistant" and turn.get("content"):
+            return str(turn["content"])
+    return ""
+
+
+def _handle_coding_action(cleaned: str, history: list[dict]) -> Response | None:
+    """The coding assistant's own commands: save, list, review a file."""
+    if _LIST_CODE_RE.match(cleaned):
+        names = coding_assistant.list_generated_code()
+        if not names:
+            return Response(
+                "You have not saved any code yet. Ask me for a snippet, then say "
+                "'save that as hello.py'.",
+                source="rule",
+            )
+        return Response("Saved code: " + ", ".join(names) + ".", source="rule")
+
+    match = _SAVE_CODE_RE.match(cleaned)
+    if match:
+        filename = _clean_target(match.group(1))
+        code = _last_code_answer(history)
+        if not code:
+            return Response(
+                "I have no code to save yet. Ask me for a snippet first, then say "
+                "'save that as hello.py'.",
+                source="rule",
+            )
+        return Response(coding_assistant.save_code_snippet(filename, code), source="action")
+
+    match = _REVIEW_CODE_RE.match(cleaned)
+    if match:
+        name = _clean_target(match.group(1))
+        try:
+            code = coding_assistant.load_code(name)
+        except coding_assistant.CodingError as exc:
+            return Response(str(exc), source="rule")
+        return _ask_coder(f"Please review the file {name}.", history, code=code)
+
+    return None
+
+
+def _ask_coder(text: str, history: list[dict], code: str = "") -> Response:
+    """Answer a programming question (or review `code`) with the coding prompt."""
+    if code:
+        answer = coding_assistant.review_code(code, filename=_file_from_text(text))
+    else:
+        answer = coding_assistant.answer_coding_question(text, history)
+    new_history = history + [
+        {"role": "user", "content": text},
+        {"role": "assistant", "content": answer},
+    ]
+    return Response(answer, source="coding", history=new_history[-6:])
+
+
+def _file_from_text(text: str) -> str:
+    """Pull 'name.py' out of 'Please review the file name.py.' (cosmetic only)."""
+    match = re.search(r"([\w\-.]+\.py)", text)
+    return match.group(1) if match else ""
 
 
 def _ask_model(text: str, history: list[dict]) -> Response:
